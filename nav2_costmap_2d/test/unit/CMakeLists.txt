@@ -34,3 +34,8 @@ ament_add_gtest(copy_window_test copy_window_test.cpp)
 target_link_libraries(copy_window_test
   nav2_costmap_2d_core
 )
+
+ament_add_gtest(denoise_layer_test denoise_layer_test.cpp)
+target_link_libraries(denoise_layer_test
+  nav2_costmap_2d_core layers
+)

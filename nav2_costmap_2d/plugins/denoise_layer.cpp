@@ -21,7 +21,10 @@
  *********************************************************************/
 #include "nav2_costmap_2d/denoise_layer.hpp"
 
-//<>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <string>
+#include <vector>
+#include <algorithm>
 
 #include "rclcpp/rclcpp.hpp"
 
@@ -50,6 +53,17 @@ void
 DenoiseLayer::updateCosts(
   nav2_costmap_2d::Costmap2D & master_grid, int min_x, int min_y, int max_x, int max_y)
 {
+  if (!enabled_) {
+    return;
+  }
+  std::unique_lock<std::recursive_mutex> lock(*master_grid.getMutex());
+
+  unsigned char * master_array = master_grid.getCharMap();
+  const int step = static_cast<int>(master_grid.getSizeInCellsX());
+
+  const cv::Size roi_size {max_x - min_x, max_y - min_y};
+  cv::Mat roi_image(roi_size, CV_8UC1, static_cast<void *>(master_array + min_x), step);
+  denoise(roi_image);
 
   current_ = true;
 }
@@ -103,6 +117,135 @@ DenoiseLayer::onInitialize()
     this->group_connectivity_type = ConnectivityType::Way8;
   }
   current_ = true;
+}
+
+void
+DenoiseLayer::denoise(cv::Mat & image) const
+{
+  checkImageType(image, CV_8UC1, "DenoiseLayer::denoise_");
+
+  if (image.empty()) {
+    return;
+  }
+
+  if (minimal_group_size <= 1) {
+    return;  // A smaller group cannot exist. No one pixel will be changed
+  }
+
+  if (minimal_group_size == 2) {
+    // Performs fast filtration based on erosion function
+    removeSinglePixels(image);
+  } else {
+    // Performs a slower segmentation-based operation
+    removeGroups(image);
+  }
+}
+
+void
+DenoiseLayer::removeGroups(cv::Mat & image) const
+{
+  cv::Mat binary;
+  cv::threshold(image, binary, 254, 255, cv::ThresholdTypes::THRESH_BINARY);
+
+  // Creates an image in which each group is labeled with a unique code
+  cv::Mat labels;
+  const uint16_t groups_count = static_cast<uint16_t>(
+    cv::connectedComponents(binary, labels, static_cast<int>(group_connectivity_type), CV_16U)
+  );
+
+  // Calculates the size of each group.
+  // Group size is equal to the number of pixels with the same label
+  const auto max_label_value = groups_count - 1;  // It's safe. groups_count always non-zero
+  std::vector<uint16_t> groups_sizes = calculateHistogram(
+    labels, max_label_value, minimal_group_size + 1);
+  groups_sizes.front() = 0;  // don't change image background value
+
+  // Replace the pixel values from the small groups to background code
+  const std::vector<uint8_t> lookup_table = makeLookupTable(groups_sizes, minimal_group_size);
+  convert<uint16_t, uint8_t>(
+    labels, image, [&lookup_table, this](uint16_t src, uint8_t & trg) {
+      if (trg == filled_cell_value) {  // in case non-binary
+        trg = lookup_table[src];
+      }
+    });
+}
+
+void
+DenoiseLayer::checkImageType(const cv::Mat & image, int cv_type, const char * error_prefix) const
+{
+  if (image.type() != cv_type) {
+    std::string description = std::string(error_prefix) + " expected image type " +
+      std::to_string(cv_type) + " but got " + std::to_string(image.type());
+    throw std::logic_error(description);
+  }
+}
+
+void
+DenoiseLayer::checkImagesSizesEqual(
+  const cv::Mat & a, const cv::Mat & b, const char * error_prefix) const
+{
+  if (a.size() != b.size()) {
+    std::string description = std::string(error_prefix) + " images sizes are different";
+    throw std::logic_error(description);
+  }
+}
+
+std::vector<uint16_t>
+DenoiseLayer::calculateHistogram(const cv::Mat & image, uint16_t image_max, uint16_t bin_max) const
+{
+  checkImageType(image, CV_16UC1, "DenoiseLayer::calculateHistogram");
+
+  if (image.empty()) {
+    return {};
+  }
+  std::vector<uint16_t> histogram(image_max + 1);
+
+  for (int row = 0; row < image.rows; ++row) {
+    auto input_line_begin = image.ptr<const uint16_t>(row);
+    auto input_line_end = input_line_begin + image.cols;
+
+    std::for_each(
+      input_line_begin, input_line_end, [&](uint16_t value) {
+        auto & h = histogram[value];
+        h = std::min(uint16_t(h + 1), bin_max);
+      });
+  }
+  return histogram;
+}
+
+std::vector<uint8_t>
+DenoiseLayer::makeLookupTable(const std::vector<uint16_t> & groups_sizes, uint16_t threshold) const
+{
+  std::vector<uint8_t> lookup_table(groups_sizes.size(), empty_cell_value);
+
+  auto transform_fn = [&threshold, this](uint16_t bin_value) {
+      if (bin_value >= threshold) {
+        return filled_cell_value;
+      }
+      return empty_cell_value;
+    };
+  std::transform(groups_sizes.begin(), groups_sizes.end(), lookup_table.begin(), transform_fn);
+  return lookup_table;
+}
+
+void
+DenoiseLayer::removeSinglePixels(cv::Mat & image) const
+{
+  const int shape_code = group_connectivity_type == ConnectivityType::Way4 ?
+    cv::MorphShapes::MORPH_CROSS : cv::MorphShapes::MORPH_RECT;
+  cv::Mat shape = cv::getStructuringElement(shape_code, {3, 3});
+  shape.at<uint8_t>(1, 1) = 0;
+
+  cv::Mat max_neighbors_image;
+  cv::dilate(image, max_neighbors_image, shape);
+
+  convert<uint8_t, uint8_t>(
+    max_neighbors_image, image, [this](uint8_t maxNeighbor, uint8_t & img) {
+      // img == filled_cell_value in case non-binary
+      if (maxNeighbor != filled_cell_value && img == filled_cell_value) {
+        img = empty_cell_value;
+      }
+    });
 }
 
 }  // namespace nav2_costmap_2d

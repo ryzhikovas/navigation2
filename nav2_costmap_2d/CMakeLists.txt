@@ -23,6 +23,7 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(angles REQUIRED)
+find_package(OpenCV REQUIRED)
 
 remove_definitions(-DDISABLE_LIBUSB-1.0)
 find_package(Eigen3 REQUIRED)
@@ -32,6 +33,7 @@ nav2_package()
 include_directories(
   include
   ${EIGEN3_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
 )
 
 add_definitions(${EIGEN3_DEFINITIONS})
@@ -92,6 +94,7 @@ ament_target_dependencies(layers
 )
 target_link_libraries(layers
   nav2_costmap_2d_core
+  ${OpenCV_LIBS}
 )
 
 add_library(filters SHARED
