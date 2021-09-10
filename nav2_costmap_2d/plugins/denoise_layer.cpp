@@ -149,6 +149,8 @@ DenoiseLayer::removeGroups(cv::Mat & image) const
 
   // Creates an image in which each group is labeled with a unique code
   cv::Mat labels;
+  // There is an simple alternative: connectedComponentsWithStats.
+  // But cv::connectedComponents + calculateHistogram is about 20% faster
   const uint16_t groups_count = static_cast<uint16_t>(
     cv::connectedComponents(binary, labels, static_cast<int>(group_connectivity_type), CV_16U)
   );
@@ -164,7 +166,7 @@ DenoiseLayer::removeGroups(cv::Mat & image) const
   const std::vector<uint8_t> lookup_table = makeLookupTable(groups_sizes, minimal_group_size);
   convert<uint16_t, uint8_t>(
     labels, image, [&lookup_table, this](uint16_t src, uint8_t & trg) {
-      if (trg == filled_cell_value) {  // in case non-binary
+      if (trg == filled_cell_value) {  // This check is required for non-binary input image
         trg = lookup_table[src];
       }
     });
@@ -237,11 +239,13 @@ DenoiseLayer::removeSinglePixels(cv::Mat & image) const
   shape.at<uint8_t>(1, 1) = 0;
 
   cv::Mat max_neighbors_image;
+  // Building a map of 4 or 8-connected neighbors.
+  // The pixel of the map is 255 if there is an obstacle nearby
   cv::dilate(image, max_neighbors_image, shape);
 
   convert<uint8_t, uint8_t>(
     max_neighbors_image, image, [this](uint8_t maxNeighbor, uint8_t & img) {
-      // img == filled_cell_value in case non-binary
+      // img == filled_cell_value is required for non-binary input image
       if (maxNeighbor != filled_cell_value && img == filled_cell_value) {
         img = empty_cell_value;
       }
