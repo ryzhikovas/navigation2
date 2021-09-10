@@ -63,7 +63,12 @@ DenoiseLayer::updateCosts(
 
   const cv::Size roi_size {max_x - min_x, max_y - min_y};
   cv::Mat roi_image(roi_size, CV_8UC1, static_cast<void *>(master_array + min_x), step);
-  denoise(roi_image);
+
+  try {
+    denoise(roi_image);
+  } catch (std::exception & ex) {
+    RCLCPP_ERROR(logger_, (std::string("Inner error: ") + ex.what()).c_str());
+  }
 
   current_ = true;
 }

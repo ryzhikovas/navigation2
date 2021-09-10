@@ -114,6 +114,7 @@ private:
      * Otherwise, it performs a slower segmentation-based operation.
      *
      * @param image source single channel image with depth CV_8U.
+     * @throw std::logic_error in case inner logic errors
    */
   void denoise(cv::Mat & image) const;
 
@@ -123,6 +124,7 @@ private:
      * Segments the image into groups of connected pixels
      * Replace pixels in groups whose size smaller than minimal_group_size to zero value (background)
      * @param image source single channel binary image with depth CV_8U
+     * @throw std::logic_error in case inner logic errors
      * @warning If image.type() != CV_8UC1, the behavior is undefined
    */
   void removeGroups(cv::Mat & image) const;
@@ -132,6 +134,7 @@ private:
      *
      * Works similarly to removeGroups with minimal_group_size = 2, but about 10x faster
      * @param image source single channel binary image with depth CV_8U
+     * @throw std::logic_error in case inner logic errors
      * @warning If image.type() != CV_8UC1, the behavior is undefined
    */
   void removeSinglePixels(cv::Mat & image) const;
