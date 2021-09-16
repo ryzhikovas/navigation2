@@ -149,8 +149,12 @@ DenoiseLayer::denoise(cv::Mat & image) const
 void
 DenoiseLayer::removeGroups(cv::Mat & image) const
 {
+  // Creates image binary (the same type and size as image)
+  // binary[i,j] = filled_cell_value if image[i,j] == filled_cell_value,
+  // empty_cell_value in other cases
   cv::Mat binary;
-  cv::threshold(image, binary, 254, 255, cv::ThresholdTypes::THRESH_BINARY);
+  cv::threshold(
+    image, binary, filled_cell_value - 1, filled_cell_value, cv::ThresholdTypes::THRESH_BINARY);
 
   // Creates an image in which each group is labeled with a unique code
   cv::Mat labels;
@@ -165,6 +169,9 @@ DenoiseLayer::removeGroups(cv::Mat & image) const
   const auto max_label_value = groups_count - 1;  // It's safe. groups_count always non-zero
   std::vector<uint16_t> groups_sizes = calculateHistogram(
     labels, max_label_value, minimal_group_size + 1);
+  // The group of pixels labeled 0 corresponds to empty map cells.
+  // Zero bin of the histogram is equal to the number of pixels in this group.
+  // Because the values of empty map cells should not be changed, we will reset this bin
   groups_sizes.front() = 0;  // don't change image background value
 
   // Replace the pixel values from the small groups to background code
@@ -207,15 +214,17 @@ DenoiseLayer::calculateHistogram(const cv::Mat & image, uint16_t image_max, uint
   }
   std::vector<uint16_t> histogram(image_max + 1);
 
+  // Increases the bin value corresponding to the pixel by one
+  auto add_pixel_value = [&histogram, bin_max](uint8_t pixel) {
+      auto & h = histogram[pixel];
+      h = std::min(uint16_t(h + 1), bin_max);
+    };
+
+  // Loops through all pixels in the image and updates the histogram at each iteration
   for (int row = 0; row < image.rows; ++row) {
     auto input_line_begin = image.ptr<const uint16_t>(row);
     auto input_line_end = input_line_begin + image.cols;
-
-    std::for_each(
-      input_line_begin, input_line_end, [&](uint16_t value) {
-        auto & h = histogram[value];
-        h = std::min(uint16_t(h + 1), bin_max);
-      });
+    std::for_each(input_line_begin, input_line_end, add_pixel_value);
   }
   return histogram;
 }

@@ -125,7 +125,7 @@ private:
      * Replace pixels in groups whose size smaller than minimal_group_size to zero value (background)
      * @param image source single channel binary image with depth CV_8U
      * @throw std::logic_error in case inner logic errors
-     * @warning If image.type() != CV_8UC1, the behavior is undefined
+     * @warning If image.empty() or image.type() != CV_8UC1, the behavior is undefined
    */
   void removeGroups(cv::Mat & image) const;
 
@@ -135,7 +135,7 @@ private:
      * Works similarly to removeGroups with minimal_group_size = 2, but about 10x faster
      * @param image source single channel binary image with depth CV_8U
      * @throw std::logic_error in case inner logic errors
-     * @warning If image.type() != CV_8UC1, the behavior is undefined
+     * @warning If image.empty() or image.type() != CV_8UC1, the behavior is undefined
    */
   void removeSinglePixels(cv::Mat & image) const;
 
@@ -145,9 +145,14 @@ private:
      * Creates a histogram of image_max bins.
      * Bin with index i keep min of (<count of the number of pixels with value i>, bin_max).
      * This truncation avoids overflow and is acceptable in the problem being solved.
+     * For example, the image may have 100'000 pixels equal to 0
+     * (100'000 > std::numeric_limits<uint16_t>). In this case, an overflow will occur when
+     * calculating a traditional histogram with bins of the uint16_t type. But in this function,
+     * the bin value will increase to the bin_max value, then stop. Overflow will not happen.
+     *
      * Faster (because simpler) than cv::calcHist
      * @param image source single channel image with depth CV_16U
-     * @param image_max max image value
+     * @param image_max max image pixel value
      * @param bin_max max histogram bin value
      * @return vector of histogram bins
      * @throw std::logic_error if image.type() != CV_16UC1
